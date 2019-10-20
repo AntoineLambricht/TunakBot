@@ -1,2 +1,2 @@
 # TunakBot
-A multi purpose discord bot.
+A multipurpose discord bot.
