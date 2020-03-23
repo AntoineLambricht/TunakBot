@@ -1,6 +1,5 @@
+import logging
 from urllib.parse import parse_qs, urlparse
-
-
 from discord.ext import commands
 from discord.ext.commands import Context
 from discord import VoiceChannel, VoiceClient, VoiceState
@@ -10,10 +9,8 @@ from audio_sources.youtube_source import YoutubeSource
 import music.music_icons as ICONS
 from music import Song, MusicPlayer
 from music.playlist import EmptyPlaylistException
-from database import db
 
-# checks function
-
+logger = logging.getLogger("tunak_bot")
 
 async def is_playing(ctx: Context):
     voice_client: VoiceClient = ctx.guild.voice_client
@@ -33,7 +30,8 @@ async def is_paused(ctx: Context):
 
 async def is_paused_or_playing(ctx: Context):
     voice_client: VoiceClient = ctx.guild.voice_client
-    if voice_client and voice_client.is_connected() and (voice_client.is_paused() or voice_client.is_playing()):
+    if voice_client and voice_client.is_connected() \
+        and (voice_client.is_paused() or voice_client.is_playing()):
         return True
     else:
         raise commands.CommandError("Not currently playing or paused.")
@@ -55,12 +53,10 @@ class Music(commands.Cog):
     def __init__(self, bot: Client):
         self.bot: Client = bot
         self.players = {}
-        # for db_player in db.players.find():
-        #     self.players[db_player.guild_id] = MusicPlayer.from_db(db_player)
 
     # events
     def cog_unload(self):
-        print("Music Cog Unloaded")
+        logger.info("Music Cog Unloaded")
 
     @commands.Cog.listener()
     async def on_message(self, message: Message):
@@ -69,7 +65,6 @@ class Music(commands.Cog):
         message_channel: TextChannel = message.channel
         if message_channel.id in player.playlist_text_channel and message.author != self.bot.user:
             await message.delete()
-            # pass
 
     @commands.Cog.listener()
     async def on_raw_reaction_add(self, payload: RawReactionActionEvent):
@@ -207,7 +202,8 @@ class Music(commands.Cog):
 
     @commands.command()
     async def setMusicChannel(self, ctx: Context):
-        await ctx.send("Waring, this text channel will be managed by me, all message sent will be deleted !(but commands will be performed)")
+        await ctx.send("""Waring, this text channel will be managed by me,
+         all message sent will be deleted !(but commands will be performed)""")
         player = self.get_player(ctx.guild)
         player.playlist_text_channel.append(ctx.channel.id)
         await self.update_playlist_messages(player)
@@ -236,7 +232,7 @@ class Music(commands.Cog):
     @resume.error
     async def default_error(self, ctx, error):
         # TODO
-        print(error)
+        logger.error(error)
         raise error
 
     @join.error
@@ -282,7 +278,8 @@ class Music(commands.Cog):
             messages = await channel.history(limit=1).flatten()
             last_message = messages[0]
 
-            if last_message.author == self.bot.user and last_message.embeds and last_message.embeds[0].title.startswith("Playlist"):
+            if last_message.author == self.bot.user and last_message.embeds \
+                and last_message.embeds[0].title.startswith("Playlist"):
                 await last_message.edit(embed=self.get_embed(channel.guild))
             else:
                 playlist_message = await channel.send(embed=self.get_embed(channel.guild))

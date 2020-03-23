@@ -1,9 +1,12 @@
 import asyncio
 import os
 import os.path as path
+import logging
 
 import discord
 import youtube_dl
+
+logger = logging.getLogger('tunak_bot')
 
 MUSIC_FOLDER = './musics/'
 
@@ -76,16 +79,14 @@ class YoutubeSource(discord.PCMVolumeTransformer):
         if path.isfile(file_name) and os.access(file_name, os.R_OK):
             download = False
         loop = loop or asyncio.get_event_loop()
-        if(download):
-            print("Downloading...")
+        if download:
+            logger.debug("Downloading...")
         else:
-            print("Fecthing data...")
+            logger.debug("Fecthing data...")
         data = await loop.run_in_executor(None, lambda: ytdl.extract_info(url, download))
         if 'entries' in data:
             # take first item from a playlist
             data = data['entries'][0]
-
-        # print(data)
         if download:
             file_name = ytdl.prepare_filename(data)
         return data, file_name
