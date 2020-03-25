@@ -1,16 +1,22 @@
 import logging
+import asyncio
+import sys
 from urllib.parse import parse_qs, urlparse
+
 from discord.ext import commands
 from discord.ext.commands import Context
 from discord import VoiceChannel, VoiceClient, VoiceState
 from discord import Embed, Message, TextChannel, Emoji
 from discord import Guild, Client, RawReactionActionEvent
+
 from audio_sources.youtube_source import YoutubeSource
+
 import music.music_icons as ICONS
 from music import Song, MusicPlayer
 from music.playlist import EmptyPlaylistException
 
 logger = logging.getLogger("tunak_bot")
+
 
 async def is_playing(ctx: Context):
     voice_client: VoiceClient = ctx.guild.voice_client
@@ -31,7 +37,7 @@ async def is_paused(ctx: Context):
 async def is_paused_or_playing(ctx: Context):
     voice_client: VoiceClient = ctx.guild.voice_client
     if voice_client and voice_client.is_connected() \
-        and (voice_client.is_paused() or voice_client.is_playing()):
+            and (voice_client.is_paused() or voice_client.is_playing()):
         return True
     else:
         raise commands.CommandError("Not currently playing or paused.")
@@ -63,7 +69,7 @@ class Music(commands.Cog):
         guild = message.guild
         player: MusicPlayer = self.get_player(guild)
         message_channel: TextChannel = message.channel
-        if message_channel.id in player.playlist_text_channel and message.author != self.bot.user:
+        if message_channel.id in player.text_channel_ids and message.author != self.bot.user:
             await message.delete()
 
     @commands.Cog.listener()
@@ -75,18 +81,30 @@ class Music(commands.Cog):
         message: Message = await channel.fetch_message(payload.message_id)
         user = self.bot.get_user(payload.user_id)
         if user != self.bot.user:
+            await message.remove_reaction(emoji, user)
+            e = str(emoji)
 
-            if str(emoji) == ICONS.PREV:
+            if e == ICONS.PREV:
                 player.playlist.select_prev()
                 await self.play_current_song(voice_client, player)
-                await message.remove_reaction(emoji, user)
-            elif str(emoji) == ICONS.PLAY_PAUSE:
-                self.toggle_play_pause(voice_client)
-                await message.remove_reaction(emoji, user)
-            elif str(emoji) == ICONS.NEXT:
+
+            elif e == ICONS.PLAY:
+                if voice_client.is_connected and voice_client.is_paused():
+                    voice_client.resume()
+                elif voice_client.is_connected and not voice_client.is_playing():
+                    await self.play_current_song(voice_client, player)
+
+            elif e == ICONS.PAUSE:
+                if voice_client.is_connected and voice_client.is_playing():
+                    voice_client.pause()
+
+            elif e == ICONS.STOP:
+                if voice_client.is_connected and (voice_client.is_playing() or voice_client.is_paused()):
+                    self.stop_without_coninuing(voice_client, player)
+
+            elif e == ICONS.NEXT:
                 player.playlist.select_next()
                 await self.play_current_song(voice_client, player)
-                await message.remove_reaction(emoji, user)
             else:
                 pass
             await self.update_playlist_messages(player)
@@ -111,35 +129,37 @@ class Music(commands.Cog):
     @commands.command()
     @commands.check(in_bot_voice_channel)
     async def leave(self, ctx: Context):
-        player = self.get_player(ctx)
+        player = self.get_player(ctx.guild)
         voice_client: VoiceClient = ctx.guild.voice_client
         if voice_client:
-            voice_client.stop()
-            await self.update_playlist_messages(player)
+            self.stop_without_coninuing(voice_client, player)
             await voice_client.disconnect()
+            await self.update_playlist_messages(player)
 
     @commands.command()
     @commands.check(in_bot_voice_channel)
     async def play(self, ctx: Context, url: str):
         player: MusicPlayer = self.get_player(ctx.guild)
 
-        parsed_url = urlparse(url)
-        youtube_id = parse_qs(parsed_url.query)["v"][0]
-
-        if parsed_url.netloc != 'www.youtube.com' or youtube_id is None:
-            raise commands.ArgumentParsingError("Wrong url format.")
+        await self.add_song_from_url(player, url)
 
         voice_client: VoiceClient = ctx.guild.voice_client
 
-        if not voice_client:
-            raise Exception("Not possible")
+        player.playlist.select_last()
+        await self.play_current_song(voice_client, player)
 
-        player.playlist.add(await Song.from_id(youtube_id))
-        # if client stoped, play song directly
-        if not(voice_client.is_paused() or voice_client.is_playing()):
-            player.playlist.select_last()
-            await self.play_current_song(voice_client, player)
+        await self.update_playlist_messages(player)
 
+    @commands.command()
+    async def add(self, ctx: Context, url: str):
+        player: MusicPlayer = self.get_player(ctx.guild)
+        await self.add_song_from_url(player, url)
+        await self.update_playlist_messages(player)
+
+    @commands.command()
+    async def remove(self, ctx: Context, index: int):
+        player = self.get_player(ctx.guild)
+        player.playlist.remove(index)
         await self.update_playlist_messages(player)
 
     @commands.command()
@@ -151,7 +171,7 @@ class Music(commands.Cog):
 
         if voice_client and voice_client.channel:
             # player.current = 0
-            voice_client.stop()
+            self.stop_without_coninuing(voice_client, player)
             await self.update_playlist_messages(player)
             # await voice_client.disconnect()
 
@@ -196,33 +216,39 @@ class Music(commands.Cog):
         embed_message = self.get_embed(ctx.guild)
 
         message: Message = await ctx.send(embed=embed_message)
-        await message.add_reaction(ICONS.PREV)
-        await message.add_reaction(ICONS.PLAY_PAUSE)
-        await message.add_reaction(ICONS.NEXT)
+        await asyncio.gather(
+            message.add_reaction(ICONS.PREV),
+            message.add_reaction(ICONS.PLAY),
+            message.add_reaction(ICONS.PAUSE),
+            message.add_reaction(ICONS.STOP),
+            message.add_reaction(ICONS.NEXT)
+        )
 
-    @commands.command()
+    @commands.command(aliases=["smc"])
     async def setMusicChannel(self, ctx: Context):
-        await ctx.send("""Waring, this text channel will be managed by me,
-         all message sent will be deleted !(but commands will be performed)""")
+        await ctx.send("""Waring, this text channel will be managed by me, all message sent will be deleted !(but commands will be performed)""")
         player = self.get_player(ctx.guild)
-        player.playlist_text_channel.append(ctx.channel.id)
+        player.text_channel_ids.append(ctx.channel.id)
         await self.update_playlist_messages(player)
 
     @commands.command()
     async def unsetMusicChannel(self, ctx: Context):
         await ctx.send("This text channel will no longer be managed by me!")
         player = self.get_player(ctx.guild)
-        player.playlist_text_channel.remove(ctx.channel.id)
+        player.text_channel_ids.remove(ctx.channel.id)
 
     @commands.command()
     async def goto(self, ctx: Context, playlist_id: int):
-        player: MusicPlayer = self.get_player(ctx)
+        player: MusicPlayer = self.get_player(ctx.guild)
         voice_client: VoiceClient = ctx.guild.voice_client
         player.playlist.select(playlist_id)
         await self.play_current_song(voice_client, player)
+        await self.update_playlist_messages(player)
 
     # error handling
     @play.error
+    @add.error
+    @remove.error
     @leave.error
     @stop.error
     @pause.error
@@ -231,9 +257,7 @@ class Music(commands.Cog):
     @next.error
     @resume.error
     async def default_error(self, ctx, error):
-        # TODO
         logger.error(error)
-        raise error
 
     @join.error
     async def join_error(self, ctx, error):
@@ -243,6 +267,34 @@ class Music(commands.Cog):
             raise error
 
     # util methods
+    async def add_song_from_url(self, player, url):
+        # IDEA use t= query param to start at a moment
+
+        parsed_url = urlparse(url)
+        url_params = parse_qs(parsed_url.query)
+        time = None
+        if "t" in url_params:
+            time = url_params["t"][0]
+
+        if parsed_url.netloc == 'www.youtube.com':
+            if "/v/" in parsed_url.path:
+                youtube_id = parsed_url.path[3:]
+            if "v" in url_params:
+                youtube_id = url_params["v"][0]
+
+        elif parsed_url.netloc != 'www.youtu.be':
+            youtube_id = parsed_url.path[1:]
+
+        if youtube_id is None:
+            raise commands.ArgumentParsingError(
+                "Not a valid format")  # TODO send message to user
+
+        player.playlist.add(await Song.from_id(youtube_id))
+
+    def stop_without_coninuing(self, voice_client: VoiceClient, player: MusicPlayer):
+        if voice_client.is_connected() and (voice_client.is_playing() or voice_client.is_paused()):
+            player.stop_after = True
+            voice_client.stop()
 
     def get_embed(self, guild: Guild) -> Embed:
         player = self.get_player(guild)
@@ -273,40 +325,69 @@ class Music(commands.Cog):
         return Embed.from_dict(embed_data)
 
     async def update_playlist_messages(self, player: MusicPlayer):
-        for channel_id in player.playlist_text_channel:
+        for channel_id in player.text_channel_ids:
             channel: TextChannel = await self.bot.fetch_channel(channel_id)
             messages = await channel.history(limit=1).flatten()
             last_message = messages[0]
 
             if last_message.author == self.bot.user and last_message.embeds \
-                and last_message.embeds[0].title.startswith("Playlist"):
+                    and last_message.embeds[0].title.startswith("Playlist"):
                 await last_message.edit(embed=self.get_embed(channel.guild))
             else:
                 playlist_message = await channel.send(embed=self.get_embed(channel.guild))
-                await playlist_message.add_reaction(ICONS.PREV)
-                await playlist_message.add_reaction(ICONS.PLAY_PAUSE)
-                await playlist_message.add_reaction(ICONS.NEXT)
+                await asyncio.gather(
+                    playlist_message.add_reaction(ICONS.PREV),
+                    playlist_message.add_reaction(ICONS.PLAY),
+                    playlist_message.add_reaction(ICONS.PAUSE),
+                    playlist_message.add_reaction(ICONS.STOP),
+                    playlist_message.add_reaction(ICONS.NEXT)
+                )
 
-    def toggle_play_pause(self, voice_client: VoiceClient):
+    async def toggle_play_pause(self, voice_client: VoiceClient, player: MusicPlayer):
         if voice_client and voice_client.is_connected():
             if voice_client.is_paused():
                 voice_client.resume()
             elif voice_client.is_playing():
                 voice_client.pause()
+            else:
+                await self.play_current_song(voice_client, player)
 
     def get_player(self, guild: Guild) -> MusicPlayer:
         if guild.id not in self.players:
-            self.players[guild.id] = MusicPlayer()
+            self.players[guild.id] = MusicPlayer(guild)
+
         return self.players[guild.id]
 
     async def play_current_song(self, voice_client: VoiceClient, player: MusicPlayer):
-        voice_client.stop()
+        self.stop_without_coninuing(voice_client, player)
         try:
             current_song: Song = player.playlist.get_current()
             source = await YoutubeSource.from_yt_id(current_song.yt_id)
-            voice_client.play(source)
+
+            def after(error):
+                if error:
+                    logger.error(error)
+                    sys.exit(-1)
+
+                if player.stop_after:
+                    player.stop_after = False
+                    return
+
+                if player.auto_play_next and self.bot.loop.is_running():
+                    player.playlist.select_next()
+                    c1 = self.play_current_song(voice_client, player)
+                    c2 = self.update_playlist_messages(player)
+
+                    fut1 = asyncio.run_coroutine_threadsafe(c1, self.bot.loop)
+                    fut2 = asyncio.run_coroutine_threadsafe(c2, self.bot.loop)
+                    try:
+                        fut1.result()
+                        fut2.result()
+                    except Exception as err:
+                        logger.error(err)
+            voice_client.play(source, after=after)
         except EmptyPlaylistException:
-            # TODO exception
+            # if the playlist is empty: do nothing
             pass
 
 

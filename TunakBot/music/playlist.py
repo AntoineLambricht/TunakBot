@@ -1,5 +1,11 @@
+import logging
 from functools import singledispatch
+from discord import Guild
+from database import db
+
 from .song import Song
+
+logger = logging.getLogger("tunak_bot")
 
 
 class EmptyPlaylistException(Exception):
@@ -19,13 +25,20 @@ class EndOfPlaylistException(Exception):
 
 
 class Playlist():
-    def __init__(self, song_list: list = None):
+    def __init__(self, db_id, guild: Guild, name="default", song_list: list = None):
+
+        self.id = db_id
+        self.guild = guild
+        self.name = name
         if song_list is None:
             self.song_list = list()
         else:
             self.song_list = song_list
-        self.song_list = song_list
-        self.current = -1
+        if len(song_list) > 0:
+            self.current = 0
+        else:
+            self.current = -1
+
         self.loop = True
 
         self.remove = singledispatch(self.remove)
@@ -37,7 +50,7 @@ class Playlist():
             raise AlreadyInPlaylistException()
         if self.get_len() == 0:
             self.current = 0
-
+        db.add_song_to_playlist(song, self.id)
         self.song_list.append(song)
 
     def remove(self, identifier):
@@ -45,6 +58,7 @@ class Playlist():
 
     def _remove_with_url(self, yt_id: str):
         try:
+            db.remove_song_from_playlist(yt_id, self.id)
             self.song_list.remove(yt_id)
             if self.current >= self.get_len():
                 self.select_last()
@@ -53,6 +67,8 @@ class Playlist():
 
     def _remove_with_id(self, number: int):
         if 0 <= number < self.get_len():
+            song = self.song_list[number]
+            db.remove_song_from_playlist(song.yt_id, self.id)
             del self.song_list[number]
             if self.current >= self.get_len():
                 self.select_last()
@@ -109,7 +125,7 @@ class Playlist():
             lines = []
             for index, song in enumerate(self.song_list):
                 if index == self.current:
-                    lines.append(f' -> {index} - {song.title}\n')
+                    lines.append(f'** -> {index} - {song.title}**\n')
                 else:
                     lines.append(f'    {index} - {song.title}\n')
             return "".join(lines)

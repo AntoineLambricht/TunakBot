@@ -78,6 +78,10 @@ target/
 # Jupyter Notebook
 .ipynb_checkpoints
 
+# db
+
+music.db
+
 # pyenv
 .python-version
 

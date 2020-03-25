@@ -1,3 +1,10 @@
-NEXT = '⏭️'
-PLAY_PAUSE = '⏯️'
-PREV = '⏮️'
+NEXT = '\u23ED'
+PLAY_PAUSE = '\u23EF'
+PREV = '\u23EE'
+STOP = '\u23F9'
+PLAY = '\u25b6'
+PAUSE = '\u23F8'
+
+VOLUME_LOW = '\u1F508'
+VOLUME_MEDIUM = '\u1F509'
+VOLUME_HIGH = '\u1F50A'

@@ -1,6 +1,6 @@
 import asyncio
 import os
-import os.path as path
+import os.path
 import logging
 
 import discord
@@ -18,10 +18,12 @@ ytdl_format_options = {
     'nocheckcertificate': True,
     'ignoreerrors': False,
     'logtostderr': False,
-    'quiet': True,
+    'quiet': False,
+    'cachedir': False,
     'no_warnings': True,
     'default_search': 'auto',
-    'source_address': '0.0.0.0'
+    'source_address': '0.0.0.0',
+    'max_filesize': 10000000
 }
 
 ffmpeg_options = {
@@ -42,51 +44,41 @@ class YoutubeSource(discord.PCMVolumeTransformer):
 
     @classmethod
     async def from_yt_id(cls, yt_id, loop=None):
-        download = True
-        file_name = f"{MUSIC_FOLDER}{yt_id}.webm"
-        url = f"https://www.youtube.com/watch?v={yt_id}"
-        if path.isfile(file_name) and os.access(file_name, os.R_OK):
-            download = False
 
-        loop = loop or asyncio.get_event_loop()
-        data = await loop.run_in_executor(None, lambda: ytdl.extract_info(url, download=True))
-        if 'entries' in data:
-            # take first item from a playlist
-            data = data['entries'][0]
-
-        if download:
-            file_name = ytdl.prepare_filename(data)
+        data, file_name = await get_data_and_download_if_not_in_cache(yt_id, loop)
         return cls(discord.FFmpegPCMAudio(file_name, **ffmpeg_options), data=data)
 
-    # @classmethod
-    # async def _from_file(cls, file_name, url, loop=None):
-    #     loop = loop or asyncio.get_event_loop()
-    #     data = await loop.run_in_executor(None, lambda: ytdl.extract_info(url, download=False))
-    #     if 'entries' in data:
-    #         # take first item from a playlist
-    #         data = data['entries'][0]
 
-    #     return cls(discord.FFmpegPCMAudio(file_name, **ffmpeg_options), data=data)
+async def get_data_and_download_if_not_in_cache(yt_id, loop=None):
 
-    # @classmethod
-    # async def _from_yt_url(cls, url, *, loop=None):
+    download = True
+    file_name = get_file_name_in_cache(yt_id)
 
-    @classmethod
-    async def get_data(cls, yt_id, loop=None):
-        download = True
-        file_name = f"{MUSIC_FOLDER}{yt_id}.webm"
-        url = f"https://www.youtube.com/watch?v={yt_id}"
-        if path.isfile(file_name) and os.access(file_name, os.R_OK):
-            download = False
-        loop = loop or asyncio.get_event_loop()
-        if download:
-            logger.debug("Downloading...")
-        else:
-            logger.debug("Fecthing data...")
-        data = await loop.run_in_executor(None, lambda: ytdl.extract_info(url, download))
-        if 'entries' in data:
-            # take first item from a playlist
-            data = data['entries'][0]
-        if download:
-            file_name = ytdl.prepare_filename(data)
-        return data, file_name
+    url = f"https://www.youtube.com/watch?v={yt_id}"
+    if file_name and os.access(os.path.abspath(file_name), os.R_OK):
+        download = False
+    loop = loop or asyncio.get_event_loop()
+    if download:
+        logger.debug("Downloading...")
+    else:
+        logger.debug("Fecthing data...")
+
+    data = await loop.run_in_executor(None, lambda: ytdl.extract_info(url, download=download))
+    if download:
+        logger.debug(data)
+    if 'entries' in data:
+        data = data['entries'][0]
+    if download:
+        logger.debug(file_name)
+        file_name = ytdl.prepare_filename(data)
+        logger.debug(file_name)
+    return data, file_name
+
+
+def get_file_name_in_cache(yt_id):
+    dirs = os.listdir(MUSIC_FOLDER)
+    for f in dirs:
+        file_name, ext = os.path.splitext(f)
+        if file_name == yt_id:
+            return f"{MUSIC_FOLDER}{yt_id}{ext}"
+    return None
