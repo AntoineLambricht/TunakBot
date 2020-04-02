@@ -1,5 +1,7 @@
 # vscode settings
 .vscode/
+# pycharm settings
+.idea/
 
 # music data folder
 musics/

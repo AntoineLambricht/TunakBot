@@ -15,7 +15,6 @@ def initialisation():
     CREATE TABLE IF NOT EXISTS songs (
         id          INTEGER     PRIMARY KEY     ,
         yt_id       TEXT                        ,
-        url         TEXT                        ,
         file_name   TEXT                        ,
         title       TEXT                        ,
         thumbnail   TEXT                        ,
@@ -32,28 +31,18 @@ def initialisation():
     )
 
     """
-    # FOREIGN KEY(guild_id) REFERENCES servers(guild_id)
-
-    # sql_create_server_table = """
-    # CREATE TABLE IF NOT EXISTS servers (
-    #     guild_id    TEXT        NOT NULL,
-    #     PRIMARY KEY(guild_id)
-    # )
-    # """
-
-    conn = getConnection()
+    conn = get_connection()
     c = conn.cursor()
     try:
         c.execute(sql_create_songs_table)
         c.execute(sql_create_playlist_table)
-        # c.execute(sql_create_server_table)
         logger.info("DB initialized.")
     except sqlite3.Error as e:
         logger.error(e)
         sys.exit(-1)
 
 
-def getConnection():
+def get_connection():
     try:
         global connection
         if not connection:
@@ -64,7 +53,7 @@ def getConnection():
 
 
 def get_or_create_default_playlist(guild_id):
-    conn = getConnection()
+    conn = get_connection()
     try:
         c = conn.cursor()
         c.execute("""SELECT * FROM playlists
@@ -73,7 +62,7 @@ def get_or_create_default_playlist(guild_id):
         playlist = c.fetchone()
         if playlist is None:
             last_row_id = add_playlist(guild_id, "default")
-            return (last_row_id, "default", guild_id)
+            return last_row_id, "default", guild_id
         else:
             return playlist
 
@@ -83,7 +72,7 @@ def get_or_create_default_playlist(guild_id):
 
 
 def get_playlist(guild_id, playlist_name):
-    conn = getConnection()
+    conn = get_connection()
     try:
         c = conn.cursor()
         c.execute("""SELECT * FROM playlists
@@ -97,12 +86,12 @@ def get_playlist(guild_id, playlist_name):
 
 
 def add_song_to_playlist(song: Song, playlist_id):
-    conn = getConnection()
+    conn = get_connection()
     try:
         c = conn.cursor()
-        c.execute("""INSERT INTO songs (yt_id,url,file_name,title,thumbnail,playlist_id)
-                  VALUES (?,?,?,?,?,?)""",
-                  (song.yt_id, song.url, song.file_name, song.title, song.thumbnail, playlist_id))
+        c.execute("""INSERT INTO songs (yt_id,file_name,title,thumbnail,playlist_id)
+                  VALUES (?,?,?,?,?)""",
+                  (song.yt_id, song.file_name, song.title, song.thumbnail, playlist_id))
         conn.commit()
         return c.lastrowid
     except sqlite3.Error as e:
@@ -111,7 +100,7 @@ def add_song_to_playlist(song: Song, playlist_id):
 
 
 def remove_song_from_playlist(yt_id, playlist_id):
-    conn = getConnection()
+    conn = get_connection()
     try:
         c = conn.cursor()
         c.execute("""DELETE FROM songs WHERE playlist_id=? AND yt_id=?""",
@@ -124,7 +113,7 @@ def remove_song_from_playlist(yt_id, playlist_id):
 
 
 def get_all_songs_from_playlist_id(playlist_id):
-    conn = getConnection()
+    conn = get_connection()
     try:
         c = conn.cursor()
         c.execute("""SELECT * FROM songs
@@ -137,7 +126,7 @@ def get_all_songs_from_playlist_id(playlist_id):
 
 
 def get_all_songs(guild_id, playlist_name="default"):
-    conn = getConnection()
+    conn = get_connection()
     try:
         c = conn.cursor()
         c.execute("""SELECT * FROM songs s, playlists p
@@ -153,7 +142,7 @@ def get_all_songs(guild_id, playlist_name="default"):
 
 
 def add_playlist(guild_id, playlist_name):
-    conn = getConnection()
+    conn = get_connection()
     try:
         c = conn.cursor()
         c.execute("""INSERT INTO playlists (name,guild_id)

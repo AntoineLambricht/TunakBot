@@ -1,30 +1,16 @@
 import logging
 from functools import singledispatch
 from discord import Guild
-from database import db
+from utils import db
 
 from .song import Song
+
+from exceptions.playlist_exceptions import *
 
 logger = logging.getLogger("tunak_bot")
 
 
-class EmptyPlaylistException(Exception):
-    pass
-
-
-class AlreadyInPlaylistException(Exception):
-    pass
-
-
-class NotInPlaylistException(Exception):
-    pass
-
-
-class EndOfPlaylistException(Exception):
-    pass
-
-
-class Playlist():
+class Playlist:
     def __init__(self, db_id, guild: Guild, name="default", song_list: list = None):
 
         self.id = db_id
@@ -34,6 +20,7 @@ class Playlist():
             self.song_list = list()
         else:
             self.song_list = song_list
+
         if len(song_list) > 0:
             self.current = 0
         else:
@@ -100,7 +87,7 @@ class Playlist():
             self.current = temp
 
     def select_last(self):
-        self.select(self.get_len()-1)
+        self.select(self.get_len() - 1)
 
     def select_first(self):
         self.select(0)

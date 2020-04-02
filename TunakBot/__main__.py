@@ -2,9 +2,11 @@ import os
 import sys
 import logging
 import asyncio
+import traceback
 import coloredlogs
 from discord.ext import commands
-from database import db
+
+from utils import db
 
 bot = commands.Bot(command_prefix=".")
 
@@ -20,9 +22,13 @@ async def on_ready():
 
 
 @bot.event
-async def on_error(event, *args, **kwargs):
-    logger.error(event, args, kwargs)
-    raise event
+async def on_error(event: str, *args, **kwargs):
+    logger.error(event)
+    exc = sys.exc_info()[1]
+    tb: traceback = sys.exc_info()[2]
+    for line in traceback.format_tb(tb):
+        logger.error(line)
+    logger.error(exc)
 
 
 @bot.command()
@@ -43,8 +49,7 @@ async def unload(ctx: commands.Context, extension_name: str):
 
 if __name__ == "__main__":
     logger = logging.getLogger("tunak_bot")
-    coloredlogs.install(fmt="%(levelname)s: %(message)s",
-                        logger=logger, level=logging.DEBUG)
+    coloredlogs.install(fmt="%(levelname)s: %(message)s", logger=logger, level=logging.DEBUG)
 
     TOKEN = os.environ.get("TUNAK_BOT_TOKEN")
 
@@ -57,6 +62,7 @@ if __name__ == "__main__":
     COGS_DIR = "cogs"
     bot.load_extension("cogs.music")
     LOOP = bot.loop
+
     try:
         LOOP.run_until_complete(bot.start(TOKEN))
     except KeyboardInterrupt:
@@ -67,8 +73,7 @@ if __name__ == "__main__":
         if tasks:
             for task in tasks:
                 task.cancel()
-            LOOP.run_until_complete(asyncio.gather(
-                *tasks, return_exceptions=True))
+            LOOP.run_until_complete(asyncio.gather(*tasks, return_exceptions=True))
         LOOP.run_until_complete(LOOP.shutdown_asyncgens())
     finally:
         LOOP.close()
